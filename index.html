@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Neon Survival - Final Master Edition</title>
+    <style>
+        body { background: #000; color: #fff; text-align: center; font-family: sans-serif; overflow: hidden; margin: 0; }
+        canvas { background: #080808; border: 4px solid #333; display: block; margin: 10px auto; }
+        .hud { font-size: 20px; padding: 10px; color: #0ff; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="hud">分數: <span id="score">0</span> | 生命: <span id="lives">3</span></div>
+    <canvas id="gameCanvas" width="600" height="400"></canvas>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+let score = 0, lives = 3, gameRunning = true, invulnerable = 0, enemySlow = 0, wallTimer = 0;
+let player = { x: 300, y: 200, w: 20, h: 20, speed: 5 };
+let enemy = { x: 50, y: 50, w: 20, h: 20 };
+let keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+
+let beans = [{x:100, y:100}, {x:500, y:300}, {x:200, y:300}];
+let specialItem = { x: 400, y: 200, type: 1, active: false };
+let walls = [];
+
+// 檢查安全性 (確保生成不卡牆)
+function isSafe(newWall) {
+    if (Math.abs(newWall.x - player.x) < 70 && Math.abs(newWall.y - player.y) < 70) return false;
+    return !walls.some(w => 
+        newWall.x < w.x + w.w + 20 && newWall.x + newWall.w > w.x - 20 &&
+        newWall.y < w.y + w.h + 20 && newWall.y + newWall.h > w.y - 20
+    );
+}
+
+function randomizeWalls() {
+    walls = [];
+    for(let i=0; i<4; i++) {
+        let newWall = { x: Math.random()*450, y: Math.random()*300, w: 80+Math.random()*60, h: 20 };
+        if(isSafe(newWall)) walls.push(newWall);
+    }
+}
+randomizeWalls();
+
+window.addEventListener("keydown", e => { if(keys.hasOwnProperty(e.key)) keys[e.key] = true; });
+window.addEventListener("keyup", e => { if(keys.hasOwnProperty(e.key)) keys[e.key] = false; });
+
+function gameLoop() {
+    if(!gameRunning) return;
+    
+    wallTimer++;
+    if(wallTimer > 600) { randomizeWalls(); wallTimer = 0; }
+
+    // 移動邏輯
+    let nextX = player.x, nextY = player.y;
+    if(keys["ArrowUp"]) nextY -= player.speed;
+    if(keys["ArrowDown"]) nextY += player.speed;
+    if(keys["ArrowLeft"]) nextX -= player.speed;
+    if(keys["ArrowRight"]) nextX += player.speed;
+
+    let hitWall = walls.some(w => nextX < w.x + w.w && nextX + player.w > w.x && nextY < w.y + w.h && nextY + player.h > w.y);
+    if(nextX >= 0 && nextX <= 580 && nextY >= 0 && nextY <= 380 && !hitWall) {
+        player.x = nextX; player.y = nextY;
+    }
+
+    // 敵人邏輯 (鎖定最大速度)
+    let slowFactor = (enemySlow > 0) ? 0.3 : 1.0;
+    let trackingSpeed = Math.min(0.02 + (score / 8000), 0.055) * slowFactor;
+    enemy.x += (player.x - enemy.x) * trackingSpeed;
+    enemy.y += (player.y - enemy.y) * trackingSpeed;
+
+    // 碰撞扣血
+    if(invulnerable === 0 && Math.abs(player.x - enemy.x) < 20 && Math.abs(player.y - enemy.y) < 20) {
+        lives--;
+        document.getElementById('lives').innerText = lives;
+        invulnerable = 120;
+        if(lives <= 0) { gameRunning = false; alert("遊戲結束！最終得分: " + score); location.reload(); }
+    }
+
+    // 豆子與道具處理
+    beans.forEach((b, i) => {
+        if(Math.abs(player.x - b.x) < 25 && Math.abs(player.y - b.y) < 25) {
+            score += 10;
+            document.getElementById('score').innerText = score;
+            beans[i] = { x: Math.random()*550, y: Math.random()*350 };
+            if(!specialItem.active && Math.random() < 0.2) {
+                specialItem.type = Math.floor(Math.random() * 3) + 1;
+                specialItem.x = Math.random()*500; specialItem.y = Math.random()*300;
+                specialItem.active = true;
+            }
+        }
+    });
+
+    if(specialItem.active && Math.abs(player.x - specialItem.x) < 25 && Math.abs(player.y - specialItem.y) < 25) {
+        if(specialItem.type === 1) invulnerable = 120;
+        else if(specialItem.type === 2) enemySlow = 180;
+        else if(specialItem.type === 3) randomizeWalls();
+        specialItem.active = false;
+    }
+
+    // --- 渲染區 (已補回渲染邏輯) ---
+    ctx.clearRect(0, 0, 600, 400);
+    
+    // 牆體與雷射
+    walls.forEach(w => { ctx.fillStyle = "#555"; ctx.fillRect(w.x, w.y, w.w, w.h); });
+    ctx.beginPath(); ctx.strokeStyle = "rgba(255, 0, 0, 0.2)";
+    ctx.moveTo(enemy.x+10, enemy.y+10); ctx.lineTo(player.x+10, player.y+10); ctx.stroke();
+    
+    // 道具
+    if(specialItem.active) {
+        let labels = ["", "INV", "SLOW", "CLR"];
+        ctx.fillStyle = "#fff"; ctx.fillText(labels[specialItem.type], specialItem.x, specialItem.y - 5);
+        ctx.fillStyle = (specialItem.type===1?"#fff":(specialItem.type===2?"#00f":"#f0f"));
+        ctx.beginPath(); ctx.arc(specialItem.x+10, specialItem.y+10, 10, 0, Math.PI*2); ctx.fill();
+    }
+    
+    // 豆子
+    beans.forEach(b => { ctx.fillStyle = "#ff0"; ctx.fillRect(b.x, b.y, 8, 8); });
+    
+    // 玩家與敵人
+    ctx.globalAlpha = (invulnerable > 0 && invulnerable % 10 < 5) ? 0.3 : 1.0;
+    ctx.fillStyle = "#0ff"; ctx.fillRect(player.x, player.y, 20, 20);
+    ctx.globalAlpha = 1.0;
+    ctx.fillStyle = "#f00"; ctx.fillRect(enemy.x, enemy.y, 20, 20);
+
+    if(invulnerable > 0) invulnerable--;
+    if(enemySlow > 0) enemySlow--;
+    requestAnimationFrame(gameLoop);
+}
+gameLoop();
+</script>
+</body>
+</html>
